@@ -1,0 +1,670 @@
+---
+title: "Fitting Non Linear Regression Models to Body Fat Data"
+author: "Your Name Here"
+date: last-modified
+date-format: "[Last modified on] MMMM DD, YYYY HH:mm:ss zzz"
+format: 
+  html: default
+  pdf: default
+editor: visual
+bibliography: 
+  - packages.bib
+  - bmiL.bib
+  - BMI.bib
+---
+
+```{r label = "setup", include = FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = "center", comment = NA, message = FALSE, warning = FALSE)
+library(caret)
+# Parallel Processing
+library(doMC)
+registerDoMC(cores = 16)
+```
+
+```{r, results = "hide", echo = FALSE, message = FALSE}
+PackagesUsed <- c("tidyverse", "caret", "rpart", "rmarkdown", "bookdown", 
+                  "plotly", "ggplot2", "knitr", "glmnet", "dplyr",
+                  "data.table", "MASS", "caretEnsemble", "ranger",
+                  "randomForest", "leaps", "corrplot","GGally", "mfp", 
+                  "partykit", "gbm", "RANN", "e1071", "rpart.plot")
+knitr::write_bib(PackagesUsed, file = "packages.bib")
+```
+
+::: {.callout-tip icon="false" title="Directions"}
+Type complete sentences to answer all questions inside the `.callout` tags provided in the R Markdown document. Use inline `R` code to report numeric answers inside the `.callout` tags (i.e. do not hard code your numeric answers).
+:::
+
+In the article *Fitting Percentage of Body Fat to Simple Body Measurements*, @johnson_fitting_1996 uses the data at <http://jse.amstat.org/datasets/fat.dat.txt> provided to him by Dr. A. Garth Fischer in a personal communication on October 5, 1994, as a multiple linear regression activity with his students. A subset of the variables at <http://jse.amstat.org/datasets/fat.dat.txt> is available in the R package **mfp** by @R-mfp and the data set is used frequently in the text *Statistical Regression and Classification* by @matloff_statistical_2017.
+
+The purpose of this activity is to have the reader create several non linear regression models to predict the body fat of males. Load a cleaned version of the data available from <https://raw.githubusercontent.com/alanarnholt/MISCD/master/bodyfatClean.csv> into your `R` session using the `read.csv()` function. Use the `head()` function to view the first six rows of the first eight columns of the data frame `bodyfatClean`.
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+# Type your code and comments inside the code chunk
+one <- "https://raw.githubusercontent.com/alanarnholt/MISCD/"
+two <- "master/bodyfatClean.csv"
+url <- paste0(one, two)
+bodyfatClean <-read.csv(url)
+head(bodyfatClean[, 1:8])  # view the first six rows and first 8 columns
+```
+:::
+
+::: {.callout-note icon="false" title="Problem 1"}
+Use the `glimpse()` function from the **dplyr** package written by @R-dplyr to view the structure of `bodyfatClean`.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 1 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+
+```
+:::
+
+Now that you have seen the structure of the data and have studied the research question, answer the following questions.
+
+::: {.callout-note icon="false" title="Problem 2"}
+2.  How many observations and variables are in `bodyfatClean`?
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 2 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+
+```
+
+------------------------------------------------------------------------
+
+Type your complete sentence answer here using inline R code and delete this comment.
+
+------------------------------------------------------------------------
+:::
+
+::: {.callout-note icon="false" title="Problem 3"}
+In the regression setting, the variable that we want to predict is called the response variable. What is the name of the response variable in your case?
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 3 Answers"}
+
+------------------------------------------------------------------------
+
+Type your complete sentence answer here using inline R code and delete this comment.
+
+------------------------------------------------------------------------
+:::
+
+::: {.callout-note icon="false" title="Problem 4"}
+In the regression setting, the variable(s) that we use to predict the response variable is(are) called the explanatory or predictor variable(s). How many predictor variable(s) are available to use in this data set?
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 4 Answers"}
+
+------------------------------------------------------------------------
+
+Type your complete sentence answer here using inline R code and delete this comment.
+
+------------------------------------------------------------------------
+:::
+
+::: {.callout-note icon="false" title="Problem 5"}
+How many of the predictor variables are numerical and how many of them are categorical?
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 5 Answers"}
+
+------------------------------------------------------------------------
+
+Type your complete sentence answer here using inline R code and delete this comment.
+
+------------------------------------------------------------------------
+:::
+
+# Partitioning the Data
+
+When building a predictive model with a sufficiently large data set, it is common practice to hold out some fraction (usually less than 50%) of the data as a test set. It is difficult to provide a general rule for the size of the `training` and `testing` sets as the ideal split depends on the signal to noise ratio in the data [@hastie_elements_2009].
+
+Use the `creatDataPartition()` function from the **caret** package written by @R-caret to partition the data in to `training` and `testing`.
+
+For illustration purposes, the `Boston` data set from the **MASS** package written by @R-MASS is used to illustrate various steps in predictive model building. The `Boston` help file indicates the data set consists of 506 observations on 14 different variables for houses in Boston collected in 1978. To open the `Boston` help file, type `?Boston` at the R prompt once the **MASS** package has been loaded. The goal in this example is to predict the median house price (`medv`) in Boston. The Boston data set is divided into a training set containing roughly 80% of the observations and a testing set containing roughly 20% of the observations. Before calling the `createDataPartition()` function, it is important to set a seed to ensure the data partition is reproducible.
+
+The arguments `y`, `p`, `list` and `times` can be used with the `createDataPartition()` function. These arguments represent a vector of outcomes (`Boston$medv`), the percentage of data that goes to training (`0.80`), should the results be in a list (`FALSE`) and the number of partitions to create (`1`) respectively. The result from using `createDataPartition()` is a vector of indices one can use to create the training and testing sets.
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+library(caret) # load the caret package
+library(MASS)  # load MASS package
+set.seed(3178) # set seed for reproducibility
+
+trainIndexB <- createDataPartition(y = Boston$medv,
+                                   p = 0.80,
+                                   list = FALSE,
+                                   times = 1)
+
+trainingB <- Boston[trainIndexB, ]
+testingB <- Boston[-trainIndexB, ]
+
+dim(trainingB) # Check the dimension of the  training set
+
+dim(testingB) # Check the dimension of the testing set
+```
+:::
+
+::: {.callout-note icon="false" title="Problem 6"}
+Partition the data frame `bodyfatClean` into training and testing partitions where roughly 80% of the data is used for training and roughly 20% of the data is used for testing. To ensure reproducibility of the partition, use `set.seed(314)`. The response variable should be `brozek_C` (the computed brozek based on the reported density).
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 6 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+set.seed(314)
+
+```
+:::
+
+::: {.callout-note icon="false" title="Problem 7"}
+Use the `dim()` function to verify the sizes of the `training` and `testing` data sets.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 7 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+
+```
+
+------------------------------------------------------------------------
+
+Type your complete sentence answer here using inline R code and delete this comment.
+
+------------------------------------------------------------------------
+:::
+
+# Pre-Processing the Data
+
+Some algorithms work better when the predictors are on the same scale. This section considers the `preProcess()` function for the **caret** package to find potentially helpful transformations of the training predictors. Three different transformations are considered: `center`, `scale`, and `BoxCox`. A center transform computes the mean of a variable and subtracts the computed mean from each value of the variable. A scale transform computes the standard deviation of a variable and divides each value of the variable by the computed standard deviation. Using both a center and a scale transform standardizes a variable. That is, using both center and scale on a variable creates a variable with a mean of 0 and a standard deviation of 1. When all values of a variable are positive, a `BoxCox` transform will reduce the skew of a variable, making it more Gaussian.
+
+The `R` code below applies a `center`, `scale`, and `BoxCox` transform to all the predictors in `trainingB` (the training set for the Boston data) and stores the results in `pp_trainingB`. The computed transformations are applied to both the `trainingB` and the `testingB` data sets using the `predict()` function with the results stored in the objects `trainingTransB` and `testingTransB`, respectively. Note that in the Boston data set the response (`medv`) is the last column ($14^{\text{th}}$) of the training data frame and is removed before pre-processing with `trainingB[ , -14]`.
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+# pp_trainingB --- pre-processed Training Boston
+pp_trainingB <- preProcess(trainingB[ , -14],
+                          method = c("center", "scale", "BoxCox"))
+pp_trainingB
+trainingTransB <- predict(pp_trainingB, trainingB)
+testingTransB <- predict(pp_trainingB, testingB)
+```
+:::
+
+Your turn now to work with the `bodyfatClean` data frame.
+
+::: {.callout-note icon="false" title="Problem 8"}
+Provide the column number of `bodyfatClean` where `brozek_C` is stored.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 8 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+
+```
+
+------------------------------------------------------------------------
+
+Type your complete sentence answer here using inline R code and delete this comment.
+
+------------------------------------------------------------------------
+:::
+
+::: {.callout-note icon="false" title="Problem 9"}
+Use the `preProcess()` function to transform the predictors that are in the `training` data set crated in Problem 6. Specifically, pass a vector with "center", "scale", and "BoxCox" to the `method =` argument of `preProcess()`. Make sure not to transform the response (`brozek_C`). Store the results in an object named `pp_training`.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 9 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+
+```
+:::
+
+::: {.callout-note icon="false" title="Problem 10"}
+Use the `predict()` function to construct a transformed training set and a transformed testing set. Name the new transformed data sets `trainingTrans` and `testingTrans`, respectively.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 10 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+
+```
+:::
+
+# $k$-Fold Cross Validation
+
+$k$-fold cross validation divides the data into $k$ subsets and performs the holdout method $k$ times. Specifically, one of the $k$ subsets is used as the test set and the other $k − 1$ subsets are put together to form a training set. The average MSE across all $k$ trials is computed and is denoted $CV_{(k)}$
+
+# Resampling with caret
+
+The `trainControl()` function from **caret** specifies the resampling procedure to be used inside the `train()` function. Resampling procedures include $k$-fold cross-validation (once or repeated), leave-one-out cross-validation, and bootstrapping. The following `R` code creates a `myControlB` object that will signal a 10-fold repeated five times cross-validation scheme (50 resamples in total) to the `train()` function for the `Boston` data set. Note that the argument `savePredictions = "final"` saves the hold-out predictions for the optimal tuning parameters.
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+myControlB <- trainControl(method = "repeatedcv",
+                          number = 10,
+                          repeats = 5,
+                          savePredictions = "final")
+```
+:::
+
+::: {.callout-note icon="false" title="Problem 11"}
+Use the `trainControl()` function to define the resampling method (repeated cross-validation), the number of resampling iterations/folds (10), and the number of repeats or complete sets to generate (5), storing the results in the object `myControl`.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 11 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+# Define the type of resampling
+
+```
+:::
+
+# Building Non Linear Models
+
+## Regression tree model
+
+Tree based methods for regression problems partition the predictor space into $J$ distinct and non-overlapping regions, $R_1, R_2, \ldots, R_J$. To make a prediction for a particular observation, the mean of the training observations in the region for the observation of interest is computed. Tree based methods are easy to understand and interpret; however, they also tend to overfit the training data and are not as competitive as random forests. Basic trees are introduced as a building block for random forests. The goal is to find regions $R_1, R_2, \ldots, R_J$ that minimize the RSS, denoted by
+
+$$
+\text{RSS} = \sum_{j = 1}^J\sum_{i \in R_j}(y_i - \hat{y}_{R_j})^2,
+$$ {#eq-TRSS}
+
+where $\hat{y}_{R_j}$ is the mean response for the training observations within the $j^{\text{th}}$ region. Since it is not possible to consider every possible partition of the predictor space a recursive binary splitting algorithm is generally employed. Recursive binary splitting first selects the predictor $X_j$ and the cutpoint $s$ such that splitting the predictor space into the regions $\{X|X_j <s\}$ and $\{X|X_j \ge s\}$ leads to the greatest reduction in RSS [@james_introduction_2017]. The same process is used to find the optimal cutpoint within each region that minimizes the RSS. This process continues until a predefined stopping criteria is met. A common stopping criteria is to refuse a split when the count in the proposed region drops below a threshold such as 5 or 10. The smaller the count for a region, the more likely the tree will be overfit to the training data and perform poorly on testing data.
+
+## Tree model using **caret**
+
+To fit a model with a particular algorithm, the name of the algorithm is given to the `method` argument of the `train()` function. The `train()` function accepts a formula interface provided the data is also specified in the function. The `R` code below fits a Regression Tree model by regressing `medv` on the predictor `age` in the `training` data set. The preferred way to train a model is by passing the response vector to the `y` argument and a data frame of the predictors or a matrix of the predictors to the `x` argument of `train()`. Below the `train()` function is used with `method = "rpart"` and the object `myControlB` is provided to the `trControl` argument.
+
+### Regression Tree with one predictor (age)
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+# Regression Tree with one predictor (age)
+set.seed(31)
+mod_TRB <- train(y = trainingTransB$medv,
+                 x = data.frame(age = trainingTransB[ , 7]),
+                 trControl = myControlB,
+                 method = "rpart",
+                 tuneLength = 10)
+
+mod_TRB
+```
+:::
+
+Here, the `train()` function from **caret** computes the complexity parameter ($c_p$) that results in the smallest RMSE when using only `age` from `trainingTransB`. As the complexity parameter increases from zero, branches are pruned from the tree, reducing the complexity of the model.
+
+Note that `mod_TRB` contains 10 models and the final model was chosen by the $c_p$ value of `r mod_TRB$bestTune$cp` corresponding to the model with minimum RMSE (`r min(mod_TRB$results$RMSE)`).
+
+Once the optimal complexity parameter is determined from cross-validation, a regression tree is grown using the transformed `age` in `trainingTransB` with the `R` code below.
+
+To get the final model, use the `rpart()` function from the **rpart** package as shown below. Notice that `cp = mod_TRB$bestTune` picks the final model from `mod_TRB`.
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+library(rpart)
+set.seed(31)
+mod_TRBG <- rpart(medv ~ age,
+                 data = trainingTransB, cp = mod_TRB$bestTune)
+mod_TRBG
+```
+:::
+
+Finally, to visualize the final model use the `rpart.plot()` function from the **rpart.plot** package.
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+library(rpart.plot)
+rpart.plot(mod_TRBG, yesno = 2)
+```
+:::
+
+Consider the `mod_TRBG` output and the resulting plot from using `rpart.plot()`. Note that the `age` has negative values. This is due to the use of transformed variables. There are n = 118 homes greater than or equal to a value of 0.86 for the variable (transformed) `age`. The average `medv` for these 118 homes is 17.22 thousand dollars. There are n = 195 homes under 0.86 for `age` but greater than -1.047 or more for `age`. These 195 homes have an average `medv` of 23.36 thousand dollars. There are n = 94 homes under -1.047 for `age`. The average `medv` for the n = 94 homes is 27.71 thousand dollars.
+
+Even though the transformed variables generally produce better models, the interpretations can be rather difficult. In such situations, it may be advisable to use untransformed variables.
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+# Regression Tree with untransformed variables.
+set.seed(31)
+mod_TRBU <- train(y = trainingB$medv,
+                x = data.frame(age = trainingB[ ,7]),
+                trControl = myControlB,
+                method = "rpart",
+                tuneLength = 10)
+
+mod_TRBU
+
+library(rpart)
+set.seed(31)
+mod_TRGU <- rpart(medv ~ age, data = trainingB)
+mod_TRGU
+
+library(rpart.plot)
+rpart.plot(mod_TRGU)
+```
+:::
+
+Using the untransformed data, the explanation is simple and practical. Specifically, there are n = 118 homes greater than or equal to 92.3 years of age. The average `medv` for these 118 homes is 17.22 thousand dollars. There are n = 195 homes under 92.3 years of age but greater than 41.3 or more years of age. These 195 homes have an average `medv` of 23.63 thousand dollars. Finally, there are n = 94 homes under 41.3 years of age. The average `medv` for the n = 94 homes under 41.3 years of age is 27.72 thousand dollars.
+
+::: {.callout-tip icon="false" title="Note"}
+From here forward we will use the untransformed predictors (data) in the examples.
+:::
+
+### Tree model with all predictors
+
+To get a Tree model with all the predictor variables, modify the previous `R` code to use the untransformed predictors as follows:
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+# Regression Tree with all predictors
+set.seed(31)
+mod_TRBall <- train(y = trainingB$medv,
+                    x = trainingB[ , -14], 
+                    trControl = myControlB,
+                    method = "rpart",
+                    tuneLength = 10)
+
+mod_TRBall
+
+library(rpart)
+set.seed(31)
+mod_TRBallG <- rpart(medv ~. ,
+                 data = trainingB, cp = mod_TRBall$bestTune)
+mod_TRBallG
+
+library(rpart.plot)
+rpart.plot(mod_TRBallG)
+```
+:::
+
+The `predict()` function is used to obtain the fitted/predicted values of `medv` using the testing data (`testingB`).
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+mod_TRBallG_pred <- predict(mod_TRBallG, newdata = testingB)
+```
+:::
+
+Next, the `RMSE()` function returns the root mean square error for the regression tree model using the `testing` data.
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+RMSE(pred = mod_TRBallG_pred, obs =testingB$medv)
+```
+:::
+
+There is a difference between the training RMSE (`r min(mod_TRBall$results$RMSE)`) and the testing RMSE (`r RMSE(pred = mod_TRBallG_pred, obs =testingB$medv)`). What does this suggest?
+
+Your turn now to work with the `bodyfatClean` data frame.
+
+::: {.callout-tip icon="false" title="Note"}
+Many statistical algorithms work better on transformed variables; however, the user whether a nurse, physical therapist, or physician should be able to use your proposed model without resorting to a spreadsheet or calculator.
+:::
+
+::: {.callout-note icon="false" title="Problem 12"}
+Use the `train()` function with `method = "rpart"`, `tuneLength = 10` along with the `myControl` as the `trControl` to fit a regression tree named `mod_TR`. Use `set.seed(42)` for reproducibility. The goal is to predict body fat using the training data in `training` created in Problem 6. Use `brozek_C` as the response and use all the predictors. (Do not use the transformed predictors due to interpretation issues.)
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 12 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+# Regression Tree with all predictors
+set.seed(42)
+
+
+```
+:::
+
+::: {.callout-note icon="false" title="Problem 13"}
+According to the output, what criterion was used to pick the best submodel? What is the value of this criterion?
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 13 Answers"}
+
+------------------------------------------------------------------------
+
+Type your complete sentence answer here using inline R code and delete this comment.
+
+------------------------------------------------------------------------
+:::
+
+::: {.callout-note icon="false" title="Problem 14"}
+Use the `rpart()` function from the **rpart** package written by @R-rpart to build the regression tree using the complexity parameter ($c_p$) value from `mod_TR` above. Name this tree `mod_TRG`.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 14 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+library(rpart)
+set.seed(31)
+
+```
+:::
+
+::: {.callout-note icon="false" title="Problem 15"}
+Use the `rpart.plot()` function from the **rpart.plot** package to graph `mod_TRG` by @R-rpart.plot to graph `mod_TRG`.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 15 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+library(rpart.plot)
+
+```
+:::
+
+::: {.callout-note icon="false" title="Problem 16"}
+What predictors are used in the graph of `mod_TRG`?
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 16 Answers"}
+
+------------------------------------------------------------------------
+
+Type your complete sentence answer here using inline R code and delete this comment.
+
+------------------------------------------------------------------------
+:::
+
+::: {.callout-note icon="false" title="Problem 17"}
+Explain the tree.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 17 Answers"}
+
+------------------------------------------------------------------------
+
+Type your complete sentence answer here using inline R code and delete this comment.
+
+------------------------------------------------------------------------
+:::
+
+::: {.callout-note icon="false" title="Problem 18"}
+Compute the RMSE for `mod_TRG` using the testing data set.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 18 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+
+```
+:::
+
+## Random Forest model
+
+A random forest is a collection of decorrelated trees. A tree in random forest is constructed by considering only a random sample of the possible predictors at each split. The number of predictors considered at each split is generally the square root of the total number of predictors in the data set ($\sqrt{p}$). The data used to grow a particular tree is not the training data but a bootstrap sample of the training data. The resulting trees are decorrelated since the predictors are selected at random, have high variance and low bias. By averaging the results from many trees, the results from a random forest are less variable than a single tree, yet relatively unbiased.
+
+To create a random forest, which is a collection of decorrelated trees, the method argument in the `train()` function would be one of either `rf` or `ranger`. The following example shows the `R` code for the random forest model to predict `medv` in `Boston` data.
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+set.seed(31)
+mod_RF <- train(y = trainingB$medv,
+                x = trainingB[, -14],
+                trControl = myControlB,
+                tuneLength = 4,
+                method = "rf")
+
+mod_RF
+```
+:::
+
+Using the default arguments for `rf` returns an average RMSE value of `r min(mod_RF$results$RMSE)` when the parameter `mtry =` `r mod_RF$results[which(mod_RF$results$RMSE == min(mod_RF$results$RMSE)), 1]`.
+
+Next, the `predict()` function is used to predict to the median house value (`medv`) using the testing data (`testingB`).
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+RF_pred <- predict(mod_RF, newdata = testingB)
+```
+:::
+
+Next, the `RMSE()` function is used to determine the root mean square error for the the random forest model using the testing data.
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+RMSE(pred = RF_pred, obs = testingB$medv)
+```
+:::
+
+::: {.callout-note icon="false" title="Problem 19"}
+Use the `train()` function with `method = "rf"`, `tuneLength = 4` along with the `myControl` as the `trControl` to fit a random forest named `mod_RF2`. Use `set.seed(42)` for reproducibility.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 19 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+set.seed(42)
+
+```
+:::
+
+::: {.callout-note icon="false" title="Problem 20"}
+Use the function `RMSE()` in conjunction with the `predict()` function to find the root mean square for the testing data.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 20 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+
+```
+:::
+
+## $k$-nearest neighbors model
+
+One of the simplest methods to provide a nonparametric estimate of f in a regression setting is using $k$-nearest neighbors ($k$-NN). $k$-NN is an algorithm that computes a weighted average of the $k$ nearest neighbors. Commonly used distance measures for continuous variables include: Euclidean, Manhattan, and Minkowski. The Euclidean, Manhattan, and Minkowski distances between two points $X = (x_1, x_2, \dots, x_n)$ and $Y = (y_1, y_2, \dots, y_n)$ are defined in @eq-EuclideanD, @eq-ManhattanD, and @eq-MinkowskiD, respectively. Note that using p = 1 in @eq-MinkowskiD results in @eq-ManhattanD, and using p = 2 in @eq-MinkowskiD results in @eq-EuclideanD.
+
+$$
+D_{Euclidean}(X,Y) = \sqrt{\sum_{i = 1}^n (x_i - y_i)^2},
+$$ {#eq-EuclideanD}
+
+$$
+D_{Manhattan}(X,Y) = \sum_{i = 1}^n |(x_i - y_i)|,
+$$ {#eq-ManhattanD}
+
+$$
+D_{Minkowski}(X,Y) = \left[\sum_{i = 1}^n |(x_i - y_i)|^p\right]^{1/p},
+$$ {#eq-MinkowskiD}
+
+The following `R` code creates a $k$-nearest neighbors model using the default arguments for `method = "knn"`.
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+set.seed(31)
+mod_KNN <- train(y = trainingB$medv,
+                 x = trainingB[, -14],
+                 trControl = myControlB,
+                 tuneLength = 10,
+                 method = "knn")
+
+mod_KNN
+
+plot(mod_KNN)
+```
+:::
+
+Using the default arguments for `knn` returns an average RMSE value of `r min(mod_KNN$results$RMSE)` when the parameter `k =` `r mod_KNN$results[which(mod_KNN$results$RMSE == min(mod_KNN$results$RMSE)), 1]` (number of neighbors).
+
+The function `RMSE()` in conjunction with the `predict()` function are used to find the root mean square for the testing data.
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+mod_KNN_pred <- predict(mod_KNN, newdata = testingB)
+
+RMSE(pred = mod_KNN_pred, obs =testingB$medv)
+```
+:::
+
+::: {.callout-note icon="false" title="Problem 21"}
+Use the `train()` function with `method = "knn"`, `tuneLength = 10` along with the `myControl` as the `trControl` to fit a random forest named `mod_KNN2`. Use `set.seed(42)` for reproducibility.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 21 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+set.seed(42)
+
+```
+:::
+
+::: {.callout-note icon="false" title="Problem 22"}
+For the final model, what is the value of $k$?
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 22 Answers"}
+
+------------------------------------------------------------------------
+
+Type your complete sentence answer here using inline R code and delete this comment.
+
+------------------------------------------------------------------------
+:::
+
+::: {.callout-note icon="false" title="Problem 23"}
+Use the function `RMSE()` in conjunction with the `predict()` function to find the root mean square for the testing data.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 23 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+
+```
+:::
+
+# Comparing different models
+
+Side by side boxplots are used to compare the MAE, RMSE, and $R^2$ values for the models `mod_TRBall`, `mod_RF` and `mod_KNN`.
+
+::: {.callout-caution icon="false" title="R Code"}
+```{r}
+ANS <- resamples(list(TREE = mod_TRBall, RF = mod_RF, KNN = mod_KNN))
+summary(ANS)
+bwplot(ANS, scales = "free")
+dotplot(ANS, scales = "free")
+```
+:::
+
+The boxplots suggest the random forest models perform better on the training data and were more consistent (less variability) than either the KNN or Tree models.
+
+::: {.callout-note icon="false" title="Problem 24"}
+Reproduce the above boxplot with models that you created for body fat data.
+:::
+
+::: {.callout-important icon="false" collapse="false" title="Problem 24 Answers"}
+```{r}
+# Type your code and comments inside the code chunk
+
+
+```
+:::
+
+::: {.callout-tip icon="false" title="License"}
+This material is released under an [Attribution-NonCommercial-ShareAlike 3.0 United States](https://creativecommons.org/licenses/by-nc-sa/3.0/us/) license. Original author: [Alan T. Arnholt](https://alanarnholt.github.io/)
+:::
+
+## References
